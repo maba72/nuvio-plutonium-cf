@@ -17,7 +17,7 @@ import { enrichCast } from "./tmdb";
 import type { Env } from "./types";
 import { errorResponse, jsonResponse, publicBase, resolveXff } from "./util";
 
-export const ADDON_VERSION = "0.3.1";
+export const ADDON_VERSION = "0.3.2";
 
 export interface CatalogRow {
   id: string;

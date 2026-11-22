@@ -198,7 +198,7 @@ export class SessionDurableObject implements DurableObject {
     if (!this.meta) return;
 
     if (this.subtitle?.status === "running" && this.hasUnprocessedSegments()) {
-      await this.scheduleAlarm(1000);
+      await this.scheduleAlarm(250);
       return;
     }
     await this.setTtlAlarm();
@@ -260,7 +260,7 @@ export class SessionDurableObject implements DurableObject {
     await this.state.storage.delete("sub");
 
     if (master.subtitle) {
-      await this.scheduleAlarm(1000);
+      await this.scheduleAlarm(250);
     } else {
       await this.setTtlAlarm();
     }
@@ -366,7 +366,7 @@ export class SessionDurableObject implements DurableObject {
   }
 
   /** Give a background job a bounded chance to finish before serving a track. */
-  private async awaitSubtitleReady(timeoutMs = 60_000): Promise<void> {
+  private async awaitSubtitleReady(timeoutMs = 120_000): Promise<void> {
     if (this.isSubtitleTerminal()) return;
     await this.runSubtitleJob();
     const deadline = Date.now() + timeoutMs;
@@ -543,7 +543,7 @@ export class SessionDurableObject implements DurableObject {
       created: Date.now(),
     };
     await this.saveSubtitle();
-    await this.scheduleAlarm(1000);
+    await this.scheduleAlarm(250);
   }
 
   private runSubtitleJob(): Promise<void> {
@@ -634,7 +634,7 @@ export class SessionDurableObject implements DurableObject {
 
       used += rows.length;
       if (used >= budget && this.hasUnprocessedSegments()) {
-        await this.scheduleAlarm(1000);
+        await this.scheduleAlarm(250);
         return;
       }
     }
