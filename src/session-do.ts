@@ -79,6 +79,8 @@ export class SessionDurableObject implements DurableObject {
   private schemaPromise: Promise<void> | null = null;
   private subtitleJob: Promise<void> | null = null;
   private subtitleStart: Promise<void> | null = null;
+  private assemblePromise: Promise<void> | null = null;
+  private inFlightBatches = 0;
   private readonly variantJobs = new Map<number, Promise<VariantRecord>>();
 
   constructor(state: DurableObjectState, env: Env) {
@@ -163,7 +165,7 @@ export class SessionDurableObject implements DurableObject {
         return this.handleMaster(url);
       }
       if (path === "/subtitle/step") {
-        await this.runSubtitleJob();
+        await this.processSubtitleBatch();
         return this.handleHealth();
       }
       if (path === "/subs.m3u8") {
@@ -573,18 +575,7 @@ export class SessionDurableObject implements DurableObject {
   }
 
   private async doRunSubtitleJob(): Promise<void> {
-    await this.ensureSubtitleStarted();
-    if (!this.subtitle || this.subtitle.status !== "running") return;
-    if (!this.config) throw new Error("session is not initialized");
-    if (this.isExpired()) {
-      await this.expire();
-      return;
-    }
-
-    const concurrency = Math.max(1, toInt(this.env.SUBTITLE_CONCURRENCY, 6));
-    const batchSize = Math.max(1, toInt(this.env.SUBTITLE_BATCH_SIZE, 16));
     const budget = Math.max(1, toInt(this.env.SUBREQUEST_BUDGET, 16));
-    const attempts = Math.max(1, toInt(this.env.SUBTITLE_FETCH_ATTEMPTS, 1));
     let used = 0;
 
     while (true) {
@@ -592,19 +583,42 @@ export class SessionDurableObject implements DurableObject {
         await this.expire();
         return;
       }
-
-      const rows = this.state.storage.sql
-        .exec(
-          "SELECT idx, url, offset_ms, duration FROM sub_segments WHERE processed = 0 ORDER BY idx LIMIT ?",
-          batchSize,
-        )
-        .toArray() as unknown as SegmentRow[];
-
-      if (rows.length === 0) {
-        await this.assembleSubtitles();
+      const processed = await this.processSubtitleBatch();
+      if (processed === 0) return;
+      used += processed;
+      if (used >= budget && this.hasUnprocessedSegments()) {
+        await this.scheduleAlarm(250);
         return;
       }
+    }
+  }
 
+  /**
+   * Process one batch. Unlike runSubtitleJob() this is intentionally not
+   * guarded by a shared promise, so several Worker-driven steps can make
+   * progress concurrently. Rows are claimed (marked processed) synchronously
+   * before any await, so concurrent steps never fetch the same chunk.
+   */
+  private async processSubtitleBatch(): Promise<number> {
+    await this.ensureSubtitleStarted();
+    if (!this.subtitle || this.subtitle.status !== "running") return 0;
+    if (!this.config) throw new Error("session is not initialized");
+    if (this.isExpired()) {
+      await this.expire();
+      return 0;
+    }
+
+    const concurrency = Math.max(1, toInt(this.env.SUBTITLE_CONCURRENCY, 6));
+    const batchSize = Math.max(1, toInt(this.env.SUBTITLE_BATCH_SIZE, 16));
+    const attempts = Math.max(1, toInt(this.env.SUBTITLE_FETCH_ATTEMPTS, 1));
+    const rows = this.claimSubtitleRows(batchSize);
+    if (rows.length === 0) {
+      if (this.inFlightBatches === 0) await this.assembleSubtitlesOnce();
+      return 0;
+    }
+
+    this.inFlightBatches++;
+    try {
       let failed = 0;
       const results = await mapLimit(rows, concurrency, async (row) => {
         try {
@@ -628,23 +642,43 @@ export class SessionDurableObject implements DurableObject {
         );
       }
 
-      const placeholders = rows.map(() => "?").join(",");
-      this.state.storage.sql.exec(
-        `UPDATE sub_segments SET processed = 1 WHERE idx IN (${placeholders})`,
-        ...rows.map((row) => Number(row.idx)),
-      );
-
       if (failed > 0 && this.subtitle) {
         this.subtitle.failedSegments = (this.subtitle.failedSegments ?? 0) + failed;
         await this.saveSubtitle();
       }
-
-      used += rows.length;
-      if (used >= budget && this.hasUnprocessedSegments()) {
-        await this.scheduleAlarm(250);
-        return;
+      return rows.length;
+    } finally {
+      this.inFlightBatches--;
+      if (this.inFlightBatches === 0 && !this.hasUnprocessedSegments()) {
+        await this.assembleSubtitlesOnce();
       }
     }
+  }
+
+  /** Atomically claim up to `limit` unprocessed subtitle chunks. */
+  private claimSubtitleRows(limit: number): SegmentRow[] {
+    const rows = this.state.storage.sql
+      .exec(
+        "SELECT idx, url, offset_ms, duration FROM sub_segments WHERE processed = 0 ORDER BY idx LIMIT ?",
+        limit,
+      )
+      .toArray() as unknown as SegmentRow[];
+    if (rows.length === 0) return rows;
+
+    const placeholders = rows.map(() => "?").join(",");
+    this.state.storage.sql.exec(
+      `UPDATE sub_segments SET processed = 1 WHERE idx IN (${placeholders})`,
+      ...rows.map((row) => Number(row.idx)),
+    );
+    return rows;
+  }
+
+  private assembleSubtitlesOnce(): Promise<void> {
+    if (this.assemblePromise) return this.assemblePromise;
+    this.assemblePromise = this.assembleSubtitles().finally(() => {
+      this.assemblePromise = null;
+    });
+    return this.assemblePromise;
   }
 
   private async assembleSubtitles(): Promise<void> {

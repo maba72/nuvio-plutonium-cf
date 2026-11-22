@@ -50,18 +50,27 @@ export async function createHlsSession(
 export async function driveSubtitles(
   env: Env,
   id: string,
-  maxSteps = 200,
+  maxRounds = 100,
 ): Promise<string> {
   const stub = env.SESSIONS.get(env.SESSIONS.idFromName(id));
+  // Three concurrent DO steps multiply Pluto fetch throughput while keeping
+  // each DO invocation under the free plan's 50 external subrequests.
+  const parallelSteps = 3;
   let status = "idle";
-  for (let step = 0; step < maxSteps; step++) {
-    const response = await stub.fetch(new Request("https://session/subtitle/step"));
-    if (!response.ok) {
-      const detail = (await response.text()).trim();
-      throw new Error(detail || `subtitle step failed (HTTP ${response.status})`);
+  for (let round = 0; round < maxRounds; round++) {
+    const responses = await Promise.all(
+      Array.from({ length: parallelSteps }, () =>
+        stub.fetch(new Request("https://session/subtitle/step")),
+      ),
+    );
+    for (const response of responses) {
+      if (!response.ok) {
+        const detail = (await response.text()).trim();
+        throw new Error(detail || `subtitle step failed (HTTP ${response.status})`);
+      }
+      const data = (await response.json()) as { subtitles?: string };
+      status = data.subtitles ?? "idle";
     }
-    const data = (await response.json()) as { subtitles?: string };
-    status = data.subtitles ?? "idle";
     if (status === "done" || status === "none" || status === "error") return status;
   }
   return status;
