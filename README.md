@@ -37,10 +37,10 @@ catalogs.
 - `src/hls/` — TypeScript ports of the Go master/cleaner/subtitle logic.
 - `src/vtt.ts` — TypeScript port of the Go WebVTT parser/retimer.
 - Workers KV namespace `SUBS` — caches generated WebVTT files. KV is included
-  on the free plan, so no R2 bucket or payment details are required. Cached
-  tracks stay on Pluto's original timeline; each session rebases them against
-  variant 0's ad ranges before serving `subs.vtt`, so the same captions can be
-  reused when a title is played with different ad breaks.
+  on the free plan, so no R2 bucket or payment details are required. Pluto's
+  chunk offsets already skip ad placeholders, so cached tracks are on the
+  ad-free video timeline. Each session only merges repeated lines and applies
+  the sync delay before serving `subs.vtt`; no second ad rebase is performed.
 
 ## Deploy
 
@@ -83,7 +83,7 @@ Values in `wrangler.toml`:
 | `CATALOG_CACHE_TTL_SECONDS` | `900` | Freshness of cached catalog/seasons responses in KV. |
 | `SESSION_TTL_SECONDS` | `86400` | Session lifetime; cleanup alarm expires state after this. |
 | `SUBTITLE_CACHE_TTL_SECONDS` | `604800` | KV WebVTT cache freshness (7 days). |
-| `SUBTITLE_OFFSET_MS` | `1000` | Fixed cue delay applied after ad rebasing. Pluto's captions run ahead of the picture; set to `0` to disable. |
+| `SUBTITLE_OFFSET_MS` | `1000` | Fixed cue delay applied to the ad-free caption timeline. Pluto's captions run ahead of the picture; set to `0` to disable. |
 | `SUBTITLE_CONCURRENCY` | `6` | Parallel subtitle chunk fetches. Keep at 6: Workers allow only 6 simultaneous outbound connections. |
 | `SUBTITLE_BATCH_SIZE` | `16` | Chunks fetched per DO work batch. Sized for Workers Free's 50-subrequest cap. |
 | `SUBREQUEST_BUDGET` | `16` | Per-invocation chunk budget before rescheduling via an alarm. |

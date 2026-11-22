@@ -15,13 +15,12 @@ import {
   textResponse,
   toInt,
 } from "./util";
-import type { Cue, Window } from "./vtt";
+import type { Cue } from "./vtt";
 import {
   cleanCues,
   durationMS,
   mergeAdjacentCues,
   parseVtt,
-  rebaseAfterAds,
   renderVtt,
   shiftCues,
 } from "./vtt";
@@ -426,11 +425,15 @@ export class SessionDurableObject implements DurableObject {
   }
 
   /**
-   * Return the canonical KV track retimed to this session's ad-free video
-   * timeline. KV always stores the original-timeline merge so the same cached
-   * captions can be reused when a title is played with different ad breaks.
-   * Repeating adjacent lines and the sync delay are applied here, at serve
-   * time, so neither requires regenerating the cached track.
+   * Return the cached KV track with serve-time adjustments applied.
+   *
+   * Pluto's subtitle chunk offsets are already measured on the ad-free
+   * timeline: the non-placeholder subtitle segments add up to exactly the
+   * cleaned video duration, and each chunk's base matches that timeline. The
+   * canonical merge therefore must NOT be rebased against variant ad ranges a
+   * second time — doing so increasingly pulls later cues ahead of the picture.
+   * Only the duplicate-line merge and the fixed sync delay are applied here,
+   * so neither requires regenerating the cached track.
    */
   private async getRebasedTrack(): Promise<RebasedTrack | null> {
     await this.runSubtitleJob();
@@ -446,34 +449,18 @@ export class SessionDurableObject implements DurableObject {
         : await this.env.SUBS.get(`subs/${key}.vtt`, "text");
     if (!canonical) return null;
 
-    let windows: Window[] = [];
-    try {
-      const variant = await this.getVariant(0);
-      windows = variant.adRanges
-        .filter((range) => range.end > range.start)
-        .map((range) => ({
-          start: Math.round(range.start * 1000),
-          end: Math.round(range.end * 1000),
-        }));
-    } catch (error) {
-      // Captions on the original timeline are still better than none.
-      console.warn("ad rebase unavailable, serving original captions", {
-        error: errorMessage(error),
-      });
-    }
-
-    const rebased = mergeAdjacentCues(rebaseAfterAds(parseVtt(canonical, 0), windows));
+    const merged = mergeAdjacentCues(parseVtt(canonical, 0));
     // Pluto's captions run ahead of the picture. Delay every cue by a fixed
-    // amount after rebasing, as the Kodi/Go addon does. Default +1s; an empty
-    // or invalid value falls back to the default rather than disabling it.
+    // amount on the ad-free timeline. Default +1s; an empty or invalid value
+    // falls back to the default rather than disabling it.
     const configuredOffset = this.env.SUBTITLE_OFFSET_MS?.trim() ?? "";
     const offsetMS = configuredOffset === "" ? 1000 : toInt(configuredOffset, 1000);
-    const shifted = shiftCues(rebased, offsetMS);
-    const rebasedDuration = durationMS(shifted);
+    const shifted = shiftCues(merged, offsetMS);
+    const servedDuration = durationMS(shifted);
     const track: RebasedTrack = {
       key,
       text: renderVtt(shifted),
-      duration: rebasedDuration > 0 ? rebasedDuration / 1000 : this.subtitle.duration ?? 0,
+      duration: servedDuration > 0 ? servedDuration / 1000 : this.subtitle.duration ?? 0,
       cueCount: shifted.length,
     };
     this.rebasedTrack = track;

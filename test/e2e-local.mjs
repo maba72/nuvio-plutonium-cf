@@ -54,9 +54,10 @@ assert.doesNotMatch(variant.text, /1_ad\/creative/);
 assert.doesNotMatch(variant.text, /METHOD=NONE/);
 assert.doesNotMatch(variant.text, /#EXT-X-DISCONTINUITY/);
 
-// The mock variant has a 5s ad from 5s to 10s on Pluto's original timeline.
-// Captions after it shift left by 5s, then the default +1s sync delay applies:
-// "Hello" starts at 1.5s and "World" starts at 6.5s.
+// Pluto chunk offsets already skip the mock variant's 5s ad, so the second
+// chunk's base is 5s. The default +1s sync delay then applies on the ad-free
+// timeline: "Hello" starts at 1.5s and "World" starts at 6.5s. There must be no
+// second ad rebase, which would move "World" to 1.5s.
 const subtitlePlaylist = await getText(`/hls/${created.id}/subs.m3u8`);
 const extraSegments = Number(process.env.MOCK_EXTRA_SUBTITLE_SEGMENTS || 0);
 if (extraSegments === 0) {

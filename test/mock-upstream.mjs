@@ -30,14 +30,16 @@ const variant = [
   "",
 ].join("\n");
 
+// Pluto's chunk offsets are already on the ad-free timeline. The mock video
+// has a 5s ad from 5s to 10s, so content chunks are 5s apart here.
 // Extra chunked segments exercise the Durable Object SQLite bind limit in e2e.
 const extraSegments = Math.max(0, Number(process.env.MOCK_EXTRA_SUBTITLE_SEGMENTS || 0));
 const extraLines = [];
 for (let index = 0; index < extraSegments; index++) {
-  const start = (index + 2) * 10_000;
+  const start = (index + 2) * 5_000;
   extraLines.push(
     "#EXTINF:5,",
-    `${MOCK}/chunks/${start}-${start + 10_000}/hls/text_en_cc/seg${index + 2}.vtt`,
+    `${MOCK}/chunks/${start}-${start + 5_000}/hls/text_en_cc/seg${index + 2}.vtt`,
   );
 }
 
@@ -46,9 +48,9 @@ const subtitles = [
   "#EXT-X-VERSION:3",
   "#EXT-X-TARGETDURATION:5",
   "#EXTINF:5,",
-  `${MOCK}/chunks/0-10000/hls/text_en_cc/seg0.vtt`,
+  `${MOCK}/chunks/0-5000/hls/text_en_cc/seg0.vtt`,
   "#EXTINF:5,",
-  `${MOCK}/chunks/10000-20000/hls/text_en_cc/seg1.vtt`,
+  `${MOCK}/chunks/5000-10000/hls/text_en_cc/seg1.vtt`,
   ...extraLines,
   "#EXTINF:5,",
   `${MOCK}/playout/placeholder/subtitles/ad.vtt`,
@@ -179,11 +181,11 @@ const server = http.createServer((request, response) => {
     case "/subs/en.m3u8":
       body = subtitles;
       break;
-    case "/chunks/0-10000/hls/text_en_cc/seg0.vtt":
+    case "/chunks/0-5000/hls/text_en_cc/seg0.vtt":
       body = chunk0;
       type = "text/vtt";
       break;
-    case "/chunks/10000-20000/hls/text_en_cc/seg1.vtt":
+    case "/chunks/5000-10000/hls/text_en_cc/seg1.vtt":
       body = chunk1;
       type = "text/vtt";
       break;

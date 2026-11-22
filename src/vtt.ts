@@ -176,11 +176,16 @@ export interface Window {
 }
 
 /**
- * Map captions from Pluto's original timeline onto the ad-free timeline.
+ * Map captions that are known to be on Pluto's original (ad-inclusive)
+ * timeline onto the ad-free timeline.
  *
  * A cue starting inside a removed ad window is dropped. Every other cue is
  * shifted left by the total length of windows that end at or before its start.
  * Settings and text are preserved verbatim.
+ *
+ * This is NOT used for Pluto's chunked VTT tracks: their URL offsets already
+ * skip ad placeholders and are therefore already ad-free. Applying this again
+ * would make captions drift progressively earlier in the movie.
  */
 export function rebaseAfterAds(
   cues: readonly Cue[],
