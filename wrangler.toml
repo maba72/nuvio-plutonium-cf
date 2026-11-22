@@ -1,0 +1,43 @@
+name = "nuvio-plutonium"
+main = "src/index.ts"
+compatibility_date = "2026-11-16"
+workers_dev = true
+
+[durable_objects]
+bindings = [{ name = "SESSIONS", class_name = "SessionDurableObject" }]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SessionDurableObject"]
+
+[[kv_namespaces]]
+binding = "SUBS"
+id = "8d1f4fbd1aa34e36a32cbe9990002e2e"
+preview_id = "6ce3b967bc274267bb16726746547021"
+
+[vars]
+# Optional public base URL, e.g. "https://pluto.example.com". Leave empty to use
+# the request origin.
+PUBLIC_URL = ""
+PLUTO_COUNTRY = "US"
+SESSION_TTL_SECONDS = "86400"
+SUBTITLE_CACHE_TTL_SECONDS = "604800"
+# Workers allow at most 6 simultaneous outbound connections. Keep this at 6.
+SUBTITLE_CONCURRENCY = "6"
+# Workers Free allows 50 external subrequests per invocation. Each subtitle
+# chunk is one fetch (plus at most one redirect), so 16 chunks stay comfortably
+# below the cap. Larger jobs are resumed by Durable Object alarms.
+SUBTITLE_BATCH_SIZE = "16"
+# Stop after this many logical chunks in one invocation; remaining chunks are
+# handled by the next alarm tick.
+SUBREQUEST_BUDGET = "16"
+# Retrying a chunk would multiply external subrequests. Keep at 1 on Free.
+SUBTITLE_FETCH_ATTEMPTS = "1"
+# Comma-separated additional upstream hosts to allow (in addition to Pluto).
+# Examples: "example.com,*.example.net"
+ALLOWED_UPSTREAM_HOSTS = ""
+# Never enable this in production. It disables the host allowlist (private IPs
+# and localhost are still blocked unless ALLOW_PRIVATE_UPSTREAM is also true).
+ALLOW_ANY_UPSTREAM = "false"
+# Development only: allow localhost/private upstream hosts. Keep false in prod.
+ALLOW_PRIVATE_UPSTREAM = "false"
