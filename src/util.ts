@@ -119,6 +119,13 @@ export function errorResponse(status: number, message: string): Response {
   return jsonResponse({ error: message }, status);
 }
 
+/** Origin used in addon/session URLs: PUBLIC_URL when set, otherwise request origin. */
+export function publicBase(request: Request, env: { PUBLIC_URL?: string }): string {
+  const configured = env.PUBLIC_URL?.trim();
+  if (configured) return configured.replace(/\/+$/, "");
+  return new URL(request.url).origin;
+}
+
 export function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);

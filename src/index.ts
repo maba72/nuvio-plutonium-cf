@@ -1,3 +1,4 @@
+import { handleAddonRequest } from "./addon";
 import { absolutize, stripAds } from "./hls/cleaner";
 import {
   isAllowedUpstream,
@@ -5,12 +6,13 @@ import {
   upstreamConfig,
   fetchText,
 } from "./pluto";
+import { createHlsSession } from "./session";
 import type { Env } from "./types";
 import {
   CORS_HEADERS,
   errorResponse,
   jsonResponse,
-  randomId,
+  publicBase,
   resolveXff,
   sha256Hex,
   textResponse,
@@ -44,6 +46,9 @@ export default {
       if (path === "/health" && request.method === "GET") {
         return jsonResponse({ ok: true, service: "nuvio-plutonium-cf" });
       }
+      // Stremio/Nuvio addon: manifest, catalogs, meta, search and streams.
+      const addonResponse = await handleAddonRequest(request, env, url, path);
+      if (addonResponse) return addonResponse;
       if (path === "/session" && (request.method === "POST" || request.method === "GET")) {
         return await createSession(request, env, url);
       }
@@ -101,15 +106,12 @@ async function createSession(request: Request, env: Env, url: URL): Promise<Resp
     return errorResponse(400, "master URL host is not allowed");
   }
 
-  const id = randomId();
-  const init = await initSession(env, id, {
-    id,
+  const id = await createHlsSession(env, {
     masterUrl,
     mediaId,
     xff: config.xff,
     country: config.country,
   });
-  if (!init.ok) return init;
 
   const base = publicBase(request, env);
   return jsonResponse({
@@ -142,14 +144,16 @@ async function handleMasterCompat(request: Request, env: Env, url: URL): Promise
   }
 
   const id = (await sha256Hex(`master|${upstream}|${config.xff}`)).slice(0, 32);
-  const init = await initSession(env, id, {
+  await createHlsSession(
+    env,
+    {
+      masterUrl: upstream,
+      mediaId: "",
+      xff: config.xff,
+      country: config.country,
+    },
     id,
-    masterUrl: upstream,
-    mediaId: "",
-    xff: config.xff,
-    country: config.country,
-  });
-  if (!init.ok) return init;
+  );
 
   const stub = env.SESSIONS.get(env.SESSIONS.idFromName(id));
   const response = await stub.fetch(
@@ -201,45 +205,12 @@ async function handleSessionPath(request: Request, env: Env, path: string): Prom
   return withCors(response);
 }
 
-async function initSession(
-  env: Env,
-  id: string,
-  payload: {
-    id: string;
-    masterUrl: string;
-    mediaId: string;
-    xff: string;
-    country: string;
-  },
-): Promise<Response> {
-  const stub = env.SESSIONS.get(env.SESSIONS.idFromName(id));
-  const response = await stub.fetch(
-    new Request("https://session/init", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    }),
-  );
-  if (!response.ok) {
-    return withCors(response);
-  }
-  // Consume the body so the DO request completes cleanly.
-  await response.text();
-  return new Response(null, { status: 204 });
-}
-
 function withCors(response: Response): Response {
   const headers = new Headers(response.headers);
   for (const [key, value] of Object.entries(CORS_HEADERS)) {
     headers.set(key, value);
   }
   return new Response(response.body, { status: response.status, headers });
-}
-
-function publicBase(request: Request, env: Env): string {
-  const configured = env.PUBLIC_URL?.trim();
-  if (configured) return configured.replace(/\/+$/, "");
-  return new URL(request.url).origin;
 }
 
 function landingPage(): Response {

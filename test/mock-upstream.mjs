@@ -46,29 +46,107 @@ const subtitles = [
   "",
 ].join("\n");
 
-const chunk0 = [
-  "WEBVTT",
-  "",
-  "00:00:00.500 --> 00:00:02.000",
-  "Hello",
-  "",
-].join("\n");
+const chunk0 = ["WEBVTT", "", "00:00:00.500 --> 00:00:02.000", "Hello", ""].join("\n");
+const chunk1 = ["WEBVTT", "", "00:00:00.500 --> 00:00:02.000", "World", ""].join("\n");
 
-const chunk1 = [
-  "WEBVTT",
-  "",
-  "00:00:00.500 --> 00:00:02.000",
-  "World",
-  "",
-].join("\n");
+const movieOne = {
+  _id: "movie-1",
+  type: "movie",
+  name: "Mock Movie",
+  releaseDate: "2021-05-01T00:00:00Z",
+  duration: 7_200_000,
+  rating: "PG-13",
+  genre: "Action",
+  summary: "A mock action movie.",
+  covers: [
+    { aspectRatio: "347:500", url: `${MOCK}/img/movie-1-poster.jpg` },
+    { aspectRatio: "16:9", url: `${MOCK}/img/movie-1-backdrop.jpg` },
+  ],
+  clip: {
+    actors: [{ name: "Actor One" }],
+    directors: [{ name: "Director One" }],
+  },
+};
+
+const movieTwo = {
+  _id: "movie-2",
+  type: "movie",
+  name: "Second Movie",
+  releaseDate: "2022-08-11T00:00:00Z",
+  duration: 5_400_000,
+  genre: ["Comedy", "Drama"],
+  description: "Another mock title.",
+};
+
+const seriesOne = {
+  _id: "series-1",
+  type: "series",
+  name: "Mock Series",
+  releaseDate: "2020-01-01T00:00:00Z",
+  genre: ["Drama"],
+  summary: "A mock series.",
+};
+
+const categories = {
+  categories: [
+    { name: "Most Popular Movies", items: [movieOne, movieTwo] },
+    { name: "Top TV Series", items: [seriesOne] },
+    { name: "Top Titles", items: [movieOne, movieTwo, seriesOne] },
+    { name: "New Movies This Month", items: [movieTwo] },
+    { name: "Leaving Soon", items: [movieOne, seriesOne] },
+  ],
+};
+
+const seasons = {
+  seasons: [
+    {
+      number: 1,
+      episodes: [
+        {
+          _id: "episode-1",
+          name: "Pilot",
+          number: 1,
+          releaseDate: "2020-01-01T00:00:00Z",
+          duration: 1_800_000,
+          description: "The pilot episode.",
+        },
+        {
+          _id: "episode-2",
+          name: "Second Episode",
+          number: 2,
+          releaseDate: "2020-01-08T00:00:00Z",
+          duration: 1_800_000,
+        },
+      ],
+    },
+  ],
+};
+
+const boot = {
+  sessionToken: "mock-token",
+  servers: { stitcher: MOCK },
+  stitcherParams: "deviceType=web&country=US",
+};
 
 const server = http.createServer((request, response) => {
-  const url = new URL(request.url || "/", `http://127.0.0.1:${port}`);
+  const url = new URL(request.url || "/", MOCK);
   const path = url.pathname;
   let body = "";
   let type = "application/vnd.apple.mpegurl";
 
   switch (path) {
+    case "/v4/start":
+      type = "application/json";
+      body = JSON.stringify(boot);
+      break;
+    case "/v3/vod/categories":
+      type = "application/json";
+      body = JSON.stringify(categories);
+      break;
+    case "/v3/vod/series/series-1/seasons":
+      type = "application/json";
+      body = JSON.stringify(seasons);
+      break;
     case "/master.m3u8":
       body = master;
       break;
@@ -87,9 +165,13 @@ const server = http.createServer((request, response) => {
       type = "text/vtt";
       break;
     default:
-      response.writeHead(404, { "Content-Type": "text/plain" });
-      response.end("not found");
-      return;
+      if (path.startsWith("/v2/stitch/hls/episode/") && path.endsWith("/master.m3u8")) {
+        body = master;
+      } else {
+        response.writeHead(404, { "Content-Type": "text/plain" });
+        response.end("not found");
+        return;
+      }
   }
 
   response.writeHead(200, { "Content-Type": type, "Cache-Control": "no-store" });
@@ -97,5 +179,5 @@ const server = http.createServer((request, response) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
-  console.log(`mock upstream listening on http://127.0.0.1:${port}`);
+  console.log(`mock upstream listening on ${MOCK}`);
 });

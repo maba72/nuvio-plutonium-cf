@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Cloudflare Worker for Pluto TV HLS ad stripping and subtitle resyncing (Nuvio/Plutonium).",
+  "description": "Cloudflare Worker Nuvio addon for Pluto TV: catalogs, ad-free HLS, and subtitle resyncing.",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",

@@ -4,6 +4,8 @@ export const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 
 const BOOT_ENDPOINT = "https://boot.pluto.tv/v4/start";
+const CATEGORIES_ENDPOINT = "https://api.pluto.tv/v3/vod/categories";
+const SERIES_ENDPOINT = "https://api.pluto.tv/v3/vod/series/";
 
 export interface UpstreamConfig {
   xff: string;
@@ -12,6 +14,9 @@ export interface UpstreamConfig {
   extraAllowedHosts: string[];
   allowAnyUpstream: boolean;
   allowPrivateUpstream: boolean;
+  bootEndpoint: string;
+  categoriesEndpoint: string;
+  seriesEndpoint: string;
 }
 
 export class UpstreamError extends Error {
@@ -220,7 +225,8 @@ export async function bootSession(
     country: config.country,
   });
 
-  const body = await fetchText(`${BOOT_ENDPOINT}?${params.toString()}`, config, 30_000);
+  const bootEndpoint = config.bootEndpoint?.trim() || BOOT_ENDPOINT;
+  const body = await fetchText(`${bootEndpoint}?${params.toString()}`, config, 30_000);
   let data: Record<string, unknown>;
   try {
     data = JSON.parse(body) as Record<string, unknown>;
@@ -251,11 +257,23 @@ export function buildMasterUrl(boot: BootSession, mediaId: string): string {
   const host = stitcherHost(boot.stitcher);
   if (!host) throw new Error("Pluto stitcher host was empty");
 
+  // Production stitcher URLs are HTTPS. Keep the scheme when Pluto (or a local
+  // test boot response) supplies one, so the URL stays reachable in both cases.
+  let scheme = "https";
+  try {
+    const parsed = new URL(boot.stitcher.trim());
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      scheme = parsed.protocol.slice(0, -1);
+    }
+  } catch {
+    // Bare host: default to HTTPS.
+  }
+
   const query = new URLSearchParams(boot.stitcherParams);
   query.set("jwt", boot.token);
   query.set("masterJWTPassthrough", "1");
 
-  return `https://${host}/v2/stitch/hls/episode/${encodeURIComponent(mediaId)}/master.m3u8?${query.toString()}`;
+  return `${scheme}://${host}/v2/stitch/hls/episode/${encodeURIComponent(mediaId)}/master.m3u8?${query.toString()}`;
 }
 
 export async function masterUrlForMedia(mediaId: string, config: UpstreamConfig): Promise<string> {
@@ -300,6 +318,9 @@ export function upstreamConfig(
     ALLOWED_UPSTREAM_HOSTS?: string;
     ALLOW_ANY_UPSTREAM?: string;
     ALLOW_PRIVATE_UPSTREAM?: string;
+    PLUTO_BOOT_URL?: string;
+    PLUTO_CATEGORIES_URL?: string;
+    PLUTO_SERIES_URL?: string;
   },
   xff: string,
   country?: string,
@@ -315,5 +336,8 @@ export function upstreamConfig(
     allowAnyUpstream: String(env.ALLOW_ANY_UPSTREAM || "").toLowerCase() === "true",
     allowPrivateUpstream:
       String(env.ALLOW_PRIVATE_UPSTREAM || "").toLowerCase() === "true",
+    bootEndpoint: env.PLUTO_BOOT_URL?.trim() || BOOT_ENDPOINT,
+    categoriesEndpoint: env.PLUTO_CATEGORIES_URL?.trim() || CATEGORIES_ENDPOINT,
+    seriesEndpoint: env.PLUTO_SERIES_URL?.trim() || SERIES_ENDPOINT,
   };
 }

@@ -77,6 +77,39 @@ const health = await getText(`/hls/${created.id}/health`);
 assert.match(health.text, /"subtitles":"done"/);
 assert.match(health.text, /"variants":1/);
 
+// Addon endpoints: one URL provides the catalog, metadata, search and streams.
+const manifest = JSON.parse((await getText("/manifest.json")).text);
+assert.equal(manifest.id, "org.maba.pluto-catalog");
+assert.equal(manifest.catalogs.length, 7);
+assert.deepEqual(manifest.types, ["movie", "series"]);
+
+const catalog = JSON.parse((await getText("/catalog/movie/pluto-movies.json")).text);
+assert.ok(catalog.metas.some((meta) => meta.id === "pluto:movie:movie-1"));
+assert.equal(catalog.metas.find((meta) => meta.id === "pluto:movie:movie-1").name, "Mock Movie");
+
+const movieMeta = JSON.parse((await getText("/meta/movie/pluto:movie:movie-1.json")).text);
+assert.equal(movieMeta.meta.name, "Mock Movie");
+assert.equal(movieMeta.meta.cast[0], "Actor One");
+assert.equal(movieMeta.meta.runtime, "120 min");
+
+const series = JSON.parse((await getText("/meta/series/pluto:series:series-1.json")).text);
+assert.equal(series.meta.videos.length, 2);
+assert.equal(series.meta.videos[0].id, "pluto:episode:episode-1");
+assert.equal(series.meta.behaviorHints.defaultVideoId, "pluto:episode:episode-1");
+
+const search = JSON.parse((await getText("/search?q=mock")).text);
+assert.ok(search.metas.some((meta) => meta.id === "pluto:movie:movie-1"));
+
+const streams = JSON.parse(
+  (await getText("/stream/movie/pluto:movie:movie-1.json?xff=74.83.52.188")).text,
+);
+assert.equal(streams.streams.length, 1);
+assert.match(streams.streams[0].url, new RegExp(`${BASE}/hls/[a-f0-9]{32}/master\\.m3u8`));
+assert.equal(streams.streams[0].behaviorHints.proxyHeaders.request["X-Forwarded-For"], "74.83.52.188");
+const streamedMaster = await fetch(streams.streams[0].url);
+assert.equal(streamedMaster.status, 200);
+assert.match(await streamedMaster.text(), /^#EXTM3U/);
+
 const compatMaster = await getText(`/master.m3u8?url=${encodeURIComponent(MASTER_URL)}`);
 assert.match(compatMaster.text, new RegExp(`/hls/[a-f0-9]{32}/v/0\\.m3u8`));
 assert.match(compatMaster.text, new RegExp(`/hls/[a-f0-9]{32}/subs\\.m3u8`));

@@ -3,20 +3,34 @@
 Cloudflare Worker replacement for the Pluto HLS portion of
 [`nuvio-plutonium`](https://github.com/maba72/nuvio-plutonium).
 
-It does two things:
+A single URL provides both the Nuvio catalog and the ad-free streams:
 
-- strips Pluto SSAI ad segments from HLS media playlists;
-- fetches Pluto's chunked WebVTT captions, resyncs them to the ad-free
-  timeline, deduplicates them, and serves one WebVTT track.
+```text
+https://nuvio-plutonium.marc-ballegeer.workers.dev/manifest.json
+```
 
-It deliberately does **not** port the catalog, metadata, TMDb, or addon API.
+It provides:
+
+- Pluto's on-demand catalogs, metadata, search and stream resolution;
+- HLS ad stripping (Pluto SSAI segments removed from media playlists);
+- merged WebVTT captions resynced to the ad-free timeline.
+
 Media segments are never proxied: the returned playlists point directly at
-Pluto's CDN.
+Pluto's CDN. The original Go server's catalog is no longer required, although
+the [`nuvio-plutonium`](https://github.com/maba72/nuvio-plutonium) provider
+script remains available as a stream-only fallback for titles from other
+catalogs.
 
 ## Architecture
 
-- `src/index.ts` — Worker router, CORS, upstream allowlisting, session creation,
-  and Python-proxy-compatible endpoints.
+- `src/index.ts` — Worker router, CORS, upstream allowlisting, and
+  Python-proxy-compatible endpoints.
+- `src/addon.ts` — Stremio/Nuvio addon manifest and catalog/meta/search/stream
+  routes.
+- `src/catalog.ts`, `src/pluto-catalog.ts` — catalog conversion helpers and
+  Pluto catalog API access with a shared KV cache.
+- `src/tmdb.ts` — optional cast-photo enrichment, enabled by `TMDB_API_KEY`.
+- `src/session.ts` — shared playback-session creation.
 - `src/session-do.ts` — one SQLite-backed Durable Object per playback session.
   Stores the parsed master, cleaned variant playlists, subtitle job state, and
   uses alarms to resume long jobs.
@@ -65,7 +79,8 @@ Values in `wrangler.toml`:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PUBLIC_URL` | `""` | Origin used in `/session` responses. Empty uses the request origin. |
-| `PLUTO_COUNTRY` | `US` | Country sent to Pluto boot/stitcher. |
+| `PLUTO_COUNTRY` | `US` | Country sent to Pluto boot/stitcher/catalog APIs. |
+| `CATALOG_CACHE_TTL_SECONDS` | `900` | Freshness of cached catalog/seasons responses in KV. |
 | `SESSION_TTL_SECONDS` | `86400` | Session lifetime; cleanup alarm expires state after this. |
 | `SUBTITLE_CACHE_TTL_SECONDS` | `604800` | KV WebVTT cache freshness (7 days). |
 | `SUBTITLE_CONCURRENCY` | `6` | Parallel subtitle chunk fetches. Keep at 6: Workers allow only 6 simultaneous outbound connections. |
@@ -80,6 +95,10 @@ Secrets (set with `npx wrangler secret put <NAME>`):
 
 - `PLUTO_XFF` — fixed IP echoed to Pluto as `X-Forwarded-For`.
 - `PLUTO_USER_AGENT` — override the browser user agent sent upstream.
+- `TMDB_API_KEY` — optional; adds cast profile photos to `/meta` responses.
+
+`PLUTO_BOOT_URL`, `PLUTO_CATEGORIES_URL` and `PLUTO_SERIES_URL` can override the
+upstream endpoints for local testing; they are not needed in production.
 
 ### Workers Free compatibility
 
@@ -96,6 +115,27 @@ Paid plan:
 Long movies take more alarm ticks, but no payment details are required.
 
 ## API
+
+### Nuvio/Stremio addon
+
+Install this manifest URL in Nuvio to get catalogs and ad-free streams from one
+addon — no local server required:
+
+```text
+https://nuvio-plutonium.marc-ballegeer.workers.dev/manifest.json
+```
+
+| Endpoint | Description |
+| --- | --- |
+| `GET /manifest.json` | Addon manifest with seven Pluto catalogs. |
+| `GET /catalog/<type>/<row>.json` | Meta previews for a catalog row. |
+| `GET /meta/<type>/pluto:<kind>:<id>.json` | Metadata, series videos and cast. |
+| `GET /search?q=<text>` | Search over the catalog cache. |
+| `GET /stream/<type>/pluto:<kind>:<id>.json` | Ad-free HLS stream for a movie or episode. |
+
+`type` is `movie` or `series` (`tv` is accepted as an alias), and `kind` is
+`movie` or `episode`. All addon endpoints accept optional `?country=` and
+`?xff=<ip>` parameters.
 
 ### Session flow
 
@@ -190,6 +230,9 @@ npm run test:e2e
 ```dotenv
 ALLOW_ANY_UPSTREAM=true
 ALLOW_PRIVATE_UPSTREAM=true
+PLUTO_BOOT_URL=http://127.0.0.1:8798/v4/start
+PLUTO_CATEGORIES_URL=http://127.0.0.1:8798/v3/vod/categories
+PLUTO_SERIES_URL=http://127.0.0.1:8798/v3/vod/series/
 ```
 
 These flags let the local Worker fetch from the mock upstream. Do not deploy
