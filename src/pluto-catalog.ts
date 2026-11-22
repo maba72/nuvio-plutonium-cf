@@ -22,6 +22,7 @@ async function cachedJson<T>(
   key: string,
   ttlMs: number,
   load: () => Promise<T>,
+  shouldCache: (value: T) => boolean = () => true,
 ): Promise<T> {
   const now = Date.now();
   const memory = memoryCache.get(key);
@@ -40,6 +41,10 @@ async function cachedJson<T>(
   }
 
   const value = await load();
+  // Never persist a transient empty/partial response. Pluto returns no
+  // categories for non-US callers, and caching that would hide every catalog
+  // row until the TTL expired.
+  if (!shouldCache(value)) return value;
   memoryCache.set(key, { expires: Date.now() + ttlMs, value });
   try {
     await env.SUBS.put(kvKey, JSON.stringify(value), {
@@ -63,13 +68,25 @@ function parseJson(body: string, label: string): Record<string, unknown> {
   }
 }
 
+/** True when a categories response actually contains catalog items. */
+function hasCatalogItems(value: Record<string, unknown>): boolean {
+  if (!Array.isArray(value.categories)) return false;
+  return value.categories.some((category) => {
+    if (!category || typeof category !== "object") return false;
+    const items = (category as { items?: unknown }).items;
+    return Array.isArray(items) && items.length > 0;
+  });
+}
+
 /** Pluto's on-demand categories, with their items. */
 export async function fetchCategories(
   env: Env,
   config: UpstreamConfig,
 ): Promise<Record<string, unknown>> {
   const ttl = catalogCacheTtlMs(env);
-  const key = `categories:${config.country}`;
+  // The XFF decides whether Pluto returns any items at all, so it belongs in
+  // the cache key. Otherwise a non-US result would be served to US callers.
+  const key = `categories:${config.country}:${config.xff || "none"}`;
   const data = await cachedJson(env, key, ttl, async () => {
     const query = new URLSearchParams({
       includeItems: "true",
@@ -80,7 +97,7 @@ export async function fetchCategories(
     const separator = endpoint.includes("?") ? "&" : "?";
     const body = await fetchText(`${endpoint}${separator}${query.toString()}`, config, 45_000);
     return parseJson(body, "categories");
-  });
+  }, hasCatalogItems);
   if (!Array.isArray(data.categories)) {
     throw new Error("Pluto categories response had an unexpected shape");
   }
@@ -94,7 +111,7 @@ export async function fetchSeriesSeasons(
   seriesId: string,
 ): Promise<Record<string, unknown>> {
   const ttl = catalogCacheTtlMs(env);
-  const key = `series:${config.country}:${seriesId}`;
+  const key = `series:${config.country}:${config.xff || "none"}:${seriesId}`;
   return cachedJson(env, key, ttl, async () => {
     const query = new URLSearchParams({
       includeItems: "true",
