@@ -360,7 +360,23 @@ export class SessionDurableObject implements DurableObject {
     return record;
   }
 
+  private isSubtitleTerminal(): boolean {
+    const status = this.subtitle?.status;
+    return status === "done" || status === "none" || status === "error";
+  }
+
+  /** Give a background job a bounded chance to finish before serving a track. */
+  private async awaitSubtitleReady(timeoutMs = 60_000): Promise<void> {
+    if (this.isSubtitleTerminal()) return;
+    await this.runSubtitleJob();
+    const deadline = Date.now() + timeoutMs;
+    while (!this.isSubtitleTerminal() && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+
   private async handleSubtitlePlaylist(): Promise<Response> {
+    await this.awaitSubtitleReady();
     const track = await this.getRebasedTrack();
     if (
       !track &&
@@ -384,6 +400,7 @@ export class SessionDurableObject implements DurableObject {
   }
 
   private async handleSubtitleVtt(): Promise<Response> {
+    await this.awaitSubtitleReady();
     const track = await this.getRebasedTrack();
     if (track) {
       return textResponse(track.text, "text/vtt; charset=utf-8", "public, max-age=3600");
@@ -534,11 +551,12 @@ export class SessionDurableObject implements DurableObject {
     this.subtitleJob = this.doRunSubtitleJob()
       .catch(async (error) => {
         console.error("subtitle job failed", error);
-        if (this.subtitle) {
-          this.subtitle.status = "error";
-          this.subtitle.error = errorMessage(error);
-          await this.saveSubtitle();
-        }
+        this.subtitle = {
+          ...(this.subtitle ?? {}),
+          status: "error",
+          error: errorMessage(error),
+        };
+        await this.saveSubtitle();
         await this.setTtlAlarm();
       })
       .finally(() => {
@@ -674,7 +692,9 @@ export class SessionDurableObject implements DurableObject {
     this.state.storage.sql.exec("DELETE FROM sub_segments");
     this.state.storage.sql.exec("DELETE FROM sub_results");
 
-    const chunkSize = 100;
+    // Durable Objects SQLite allows at most 100 bound parameters per statement.
+    // Each row binds idx, url, offset_ms and duration (4), so 20 rows = 80 binds.
+    const chunkSize = 20;
     for (let start = 0; start < segments.length; start += chunkSize) {
       const chunk = segments.slice(start, start + chunkSize);
       const values = chunk.map(() => "(?, ?, ?, ?, 0)").join(", ");

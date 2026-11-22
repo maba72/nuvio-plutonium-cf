@@ -17,7 +17,7 @@ import { enrichCast } from "./tmdb";
 import type { Env } from "./types";
 import { errorResponse, jsonResponse, publicBase, resolveXff } from "./util";
 
-export const ADDON_VERSION = "0.3.0";
+export const ADDON_VERSION = "0.3.1";
 
 export interface CatalogRow {
   id: string;
@@ -196,7 +196,6 @@ async function handleStream(
     xff: config.xff,
     country: config.country,
   });
-
   const headers: Record<string, string> = { "User-Agent": config.userAgent };
   if (config.xff) headers["X-Forwarded-For"] = config.xff;
   const stream: Json = {

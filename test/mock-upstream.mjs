@@ -30,6 +30,17 @@ const variant = [
   "",
 ].join("\n");
 
+// Extra chunked segments exercise the Durable Object SQLite bind limit in e2e.
+const extraSegments = Math.max(0, Number(process.env.MOCK_EXTRA_SUBTITLE_SEGMENTS || 0));
+const extraLines = [];
+for (let index = 0; index < extraSegments; index++) {
+  const start = (index + 2) * 10_000;
+  extraLines.push(
+    "#EXTINF:5,",
+    `${MOCK}/chunks/${start}-${start + 10_000}/hls/text_en_cc/seg${index + 2}.vtt`,
+  );
+}
+
 const subtitles = [
   "#EXTM3U",
   "#EXT-X-VERSION:3",
@@ -38,6 +49,7 @@ const subtitles = [
   `${MOCK}/chunks/0-10000/hls/text_en_cc/seg0.vtt`,
   "#EXTINF:5,",
   `${MOCK}/chunks/10000-20000/hls/text_en_cc/seg1.vtt`,
+  ...extraLines,
   "#EXTINF:5,",
   `${MOCK}/playout/placeholder/subtitles/ad.vtt`,
   "#EXTINF:0.5,",
@@ -164,8 +176,12 @@ const server = http.createServer((request, response) => {
       body = chunk1;
       type = "text/vtt";
       break;
-    default:
-      if (path.startsWith("/v2/stitch/hls/episode/") && path.endsWith("/master.m3u8")) {
+    default: {
+      const chunk = /^\/chunks\/\d+-\d+\/hls\/text_en_cc\/seg(\d+)\.vtt$/.exec(path);
+      if (chunk) {
+        body = Number(chunk[1]) === 0 ? chunk0 : Number(chunk[1]) === 1 ? chunk1 : "WEBVTT\n\n";
+        type = "text/vtt";
+      } else if (path.startsWith("/v2/stitch/hls/episode/") && path.endsWith("/master.m3u8")) {
         body = master;
       } else if (path.startsWith("/v2/stitch/hls/episode/") && path.endsWith("/subs/en.m3u8")) {
         body = subtitles;
@@ -174,6 +190,7 @@ const server = http.createServer((request, response) => {
         response.end("not found");
         return;
       }
+    }
   }
 
   response.writeHead(200, { "Content-Type": type, "Cache-Control": "no-store" });

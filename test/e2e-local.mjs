@@ -57,8 +57,14 @@ assert.doesNotMatch(variant.text, /#EXT-X-DISCONTINUITY/);
 // The mock variant has a 5s ad from 5s to 10s on Pluto's original timeline.
 // Captions after it must be shifted left, so "World" moves from 10.5s to 5.5s.
 const subtitlePlaylist = await getText(`/hls/${created.id}/subs.m3u8`);
-assert.match(subtitlePlaylist.text, /#EXT-X-TARGETDURATION:7/);
-assert.match(subtitlePlaylist.text, /#EXTINF:7\.000,/);
+const extraSegments = Number(process.env.MOCK_EXTRA_SUBTITLE_SEGMENTS || 0);
+if (extraSegments === 0) {
+  assert.match(subtitlePlaylist.text, /#EXT-X-TARGETDURATION:7/);
+  assert.match(subtitlePlaylist.text, /#EXTINF:7\.000,/);
+} else {
+  assert.match(subtitlePlaylist.text, /#EXT-X-TARGETDURATION:\d+/);
+  assert.match(subtitlePlaylist.text, /#EXTINF:\d+\.\d+,/);
+}
 assert.match(subtitlePlaylist.text, /subs\.vtt/);
 
 const vtt = await getText(`/hls/${created.id}/subs.vtt`);
