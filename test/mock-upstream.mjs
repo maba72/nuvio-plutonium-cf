@@ -167,6 +167,8 @@ const server = http.createServer((request, response) => {
     default:
       if (path.startsWith("/v2/stitch/hls/episode/") && path.endsWith("/master.m3u8")) {
         body = master;
+      } else if (path.startsWith("/v2/stitch/hls/episode/") && path.endsWith("/subs/en.m3u8")) {
+        body = subtitles;
       } else {
         response.writeHead(404, { "Content-Type": "text/plain" });
         response.end("not found");
