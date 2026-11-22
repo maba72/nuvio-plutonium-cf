@@ -24,6 +24,9 @@ PLUTO_COUNTRY = "US"
 CATALOG_CACHE_TTL_SECONDS = "900"
 SESSION_TTL_SECONDS = "86400"
 SUBTITLE_CACHE_TTL_SECONDS = "604800"
+# Pluto captions run ahead of the picture. Delay every cue by 1s after ad
+# rebasing. Override with another millisecond value if needed.
+SUBTITLE_OFFSET_MS = "1000"
 # Workers allow at most 6 simultaneous outbound connections. Keep this at 6.
 SUBTITLE_CONCURRENCY = "6"
 # Workers Free allows 50 external subrequests per invocation. Each subtitle

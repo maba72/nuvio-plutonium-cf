@@ -111,6 +111,44 @@ function trimText(lines: string[]): string[] {
 }
 
 /**
+ * Delay (or advance) every cue without touching the cached original-timeline
+ * track. A positive delta shifts captions later to counter Pluto's cues running
+ * ahead of the picture. Mirrors vtt.Shift() from the Go addon.
+ */
+export function shiftCues(cues: readonly Cue[], deltaMS: number): Cue[] {
+  if (deltaMS === 0) return cues.map((cue) => ({ ...cue }));
+  return cues.map((cue) => ({
+    ...cue,
+    start: Math.max(0, cue.start + deltaMS),
+    end: Math.max(0, cue.end + deltaMS),
+  }));
+}
+
+/**
+ * Collapse identical text that touches or overlaps on the timeline. Pluto's
+ * caption chunks repeat the tail of one cue at the head of the next, and players
+ * can render both cues at once, showing the same line stacked. Keep the first
+ * cue's settings and extend it through the last duplicate.
+ */
+export function mergeAdjacentCues(cues: readonly Cue[]): Cue[] {
+  const out: Cue[] = [];
+  for (const original of cues) {
+    const cue: Cue = { ...original, text: [...original.text] };
+    const previous = out[out.length - 1];
+    if (previous && cue.start <= previous.end && sameText(previous.text, cue.text)) {
+      if (cue.end > previous.end) previous.end = cue.end;
+      continue;
+    }
+    out.push(cue);
+  }
+  return out;
+}
+
+function sameText(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((line, index) => line === b[index]);
+}
+
+/**
  * Sort cues and remove duplicates, mirroring the Kodi/Go behaviour. Cue
  * settings are deliberately excluded from the duplicate key; empty cues are
  * kept because Pluto uses them to clear captions between runs.

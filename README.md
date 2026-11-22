@@ -83,6 +83,7 @@ Values in `wrangler.toml`:
 | `CATALOG_CACHE_TTL_SECONDS` | `900` | Freshness of cached catalog/seasons responses in KV. |
 | `SESSION_TTL_SECONDS` | `86400` | Session lifetime; cleanup alarm expires state after this. |
 | `SUBTITLE_CACHE_TTL_SECONDS` | `604800` | KV WebVTT cache freshness (7 days). |
+| `SUBTITLE_OFFSET_MS` | `1000` | Fixed cue delay applied after ad rebasing. Pluto's captions run ahead of the picture; set to `0` to disable. |
 | `SUBTITLE_CONCURRENCY` | `6` | Parallel subtitle chunk fetches. Keep at 6: Workers allow only 6 simultaneous outbound connections. |
 | `SUBTITLE_BATCH_SIZE` | `16` | Chunks fetched per DO work batch. Sized for Workers Free's 50-subrequest cap. |
 | `SUBREQUEST_BUDGET` | `16` | Per-invocation chunk budget before rescheduling via an alarm. |

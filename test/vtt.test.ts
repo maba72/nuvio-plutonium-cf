@@ -3,9 +3,11 @@ import {
   cleanCues,
   durationMS,
   formatTime,
+  mergeAdjacentCues,
   parseVtt,
   rebaseAfterAds,
   renderVtt,
+  shiftCues,
   type Window,
 } from "../src/vtt";
 
@@ -80,6 +82,54 @@ describe("cleanCues", () => {
     ]);
     expect(cleaned).toHaveLength(1);
     expect(cleaned[0]!.text).toEqual([]);
+  });
+});
+
+describe("shiftCues", () => {
+  it("delays every cue while preserving settings and text", () => {
+    const cues = [
+      { start: 500, end: 2000, settings: "line:90%", text: ["Hello"] },
+      { start: 3000, end: 4000, settings: "", text: [] },
+    ];
+    const shifted = shiftCues(cues, 1000);
+    expect(shifted.map((cue) => [cue.start, cue.end])).toEqual([
+      [1500, 3000],
+      [4000, 5000],
+    ]);
+    expect(shifted[0]!.settings).toBe("line:90%");
+    expect(shifted[0]!.text).toEqual(["Hello"]);
+    expect(cues[0]!.start).toBe(500);
+  });
+
+  it("clamps negative offsets at zero", () => {
+    expect(shiftCues([{ start: 500, end: 1500, settings: "", text: ["x"] }], -1000)).toEqual([
+      { start: 0, end: 500, settings: "", text: ["x"] },
+    ]);
+  });
+});
+
+describe("mergeAdjacentCues", () => {
+  it("merges touching and overlapping repeats but keeps separated cues", () => {
+    const cues = [
+      { start: 1000, end: 2000, settings: "line:90%", text: ["Same"] },
+      { start: 2000, end: 3000, settings: "align:start", text: ["Same"] },
+      { start: 2900, end: 3500, settings: "", text: ["Same"] },
+      { start: 4000, end: 4500, settings: "", text: ["Other"] },
+      { start: 5000, end: 6000, settings: "", text: ["Same"] },
+    ];
+    expect(mergeAdjacentCues(cues)).toEqual([
+      { start: 1000, end: 3500, settings: "line:90%", text: ["Same"] },
+      { start: 4000, end: 4500, settings: "", text: ["Other"] },
+      { start: 5000, end: 6000, settings: "", text: ["Same"] },
+    ]);
+  });
+
+  it("does not merge cues with different multiline text", () => {
+    const cues = [
+      { start: 1000, end: 2000, settings: "", text: ["A", "B"] },
+      { start: 2000, end: 3000, settings: "", text: ["B", "A"] },
+    ];
+    expect(mergeAdjacentCues(cues)).toHaveLength(2);
   });
 });
 

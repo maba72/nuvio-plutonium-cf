@@ -17,6 +17,8 @@ export interface Env {
   PUBLIC_URL?: string;
   SESSION_TTL_SECONDS?: string;
   SUBTITLE_CACHE_TTL_SECONDS?: string;
+  /** Fixed cue delay in ms applied at serve time; defaults to 1000. */
+  SUBTITLE_OFFSET_MS?: string;
   SUBTITLE_CONCURRENCY?: string;
   SUBTITLE_BATCH_SIZE?: string;
   SUBREQUEST_BUDGET?: string;

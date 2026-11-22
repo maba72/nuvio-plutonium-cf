@@ -16,7 +16,15 @@ import {
   toInt,
 } from "./util";
 import type { Cue, Window } from "./vtt";
-import { cleanCues, durationMS, parseVtt, rebaseAfterAds, renderVtt } from "./vtt";
+import {
+  cleanCues,
+  durationMS,
+  mergeAdjacentCues,
+  parseVtt,
+  rebaseAfterAds,
+  renderVtt,
+  shiftCues,
+} from "./vtt";
 
 interface InitBody {
   id?: string;
@@ -421,6 +429,8 @@ export class SessionDurableObject implements DurableObject {
    * Return the canonical KV track retimed to this session's ad-free video
    * timeline. KV always stores the original-timeline merge so the same cached
    * captions can be reused when a title is played with different ad breaks.
+   * Repeating adjacent lines and the sync delay are applied here, at serve
+   * time, so neither requires regenerating the cached track.
    */
   private async getRebasedTrack(): Promise<RebasedTrack | null> {
     await this.runSubtitleJob();
@@ -452,13 +462,19 @@ export class SessionDurableObject implements DurableObject {
       });
     }
 
-    const rebased = rebaseAfterAds(parseVtt(canonical, 0), windows);
-    const rebasedDuration = durationMS(rebased);
+    const rebased = mergeAdjacentCues(rebaseAfterAds(parseVtt(canonical, 0), windows));
+    // Pluto's captions run ahead of the picture. Delay every cue by a fixed
+    // amount after rebasing, as the Kodi/Go addon does. Default +1s; an empty
+    // or invalid value falls back to the default rather than disabling it.
+    const configuredOffset = this.env.SUBTITLE_OFFSET_MS?.trim() ?? "";
+    const offsetMS = configuredOffset === "" ? 1000 : toInt(configuredOffset, 1000);
+    const shifted = shiftCues(rebased, offsetMS);
+    const rebasedDuration = durationMS(shifted);
     const track: RebasedTrack = {
       key,
-      text: renderVtt(rebased),
+      text: renderVtt(shifted),
       duration: rebasedDuration > 0 ? rebasedDuration / 1000 : this.subtitle.duration ?? 0,
-      cueCount: rebased.length,
+      cueCount: shifted.length,
     };
     this.rebasedTrack = track;
     return track;

@@ -59,7 +59,18 @@ const subtitles = [
 ].join("\n");
 
 const chunk0 = ["WEBVTT", "", "00:00:00.500 --> 00:00:02.000", "Hello", ""].join("\n");
-const chunk1 = ["WEBVTT", "", "00:00:00.500 --> 00:00:02.000", "World", ""].join("\n");
+// The second cue repeats the same line with a slightly shorter end, like the
+// overlapping chunks Pluto produces. It must be merged before serving.
+const chunk1 = [
+  "WEBVTT",
+  "",
+  "00:00:00.500 --> 00:00:02.000 line:90%",
+  "World",
+  "",
+  "00:00:00.500 --> 00:00:01.900 align:start",
+  "World",
+  "",
+].join("\n");
 
 const movieOne = {
   _id: "movie-1",

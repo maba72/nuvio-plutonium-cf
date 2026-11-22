@@ -55,12 +55,13 @@ assert.doesNotMatch(variant.text, /METHOD=NONE/);
 assert.doesNotMatch(variant.text, /#EXT-X-DISCONTINUITY/);
 
 // The mock variant has a 5s ad from 5s to 10s on Pluto's original timeline.
-// Captions after it must be shifted left, so "World" moves from 10.5s to 5.5s.
+// Captions after it shift left by 5s, then the default +1s sync delay applies:
+// "Hello" starts at 1.5s and "World" starts at 6.5s.
 const subtitlePlaylist = await getText(`/hls/${created.id}/subs.m3u8`);
 const extraSegments = Number(process.env.MOCK_EXTRA_SUBTITLE_SEGMENTS || 0);
 if (extraSegments === 0) {
-  assert.match(subtitlePlaylist.text, /#EXT-X-TARGETDURATION:7/);
-  assert.match(subtitlePlaylist.text, /#EXTINF:7\.000,/);
+  assert.match(subtitlePlaylist.text, /#EXT-X-TARGETDURATION:8/);
+  assert.match(subtitlePlaylist.text, /#EXTINF:8\.000,/);
 } else {
   assert.match(subtitlePlaylist.text, /#EXT-X-TARGETDURATION:\d+/);
   assert.match(subtitlePlaylist.text, /#EXTINF:\d+\.\d+,/);
@@ -69,11 +70,15 @@ assert.match(subtitlePlaylist.text, /subs\.vtt/);
 
 const vtt = await getText(`/hls/${created.id}/subs.vtt`);
 assert.match(vtt.text, /^WEBVTT/);
-assert.match(vtt.text, /00:00:00\.500 --> 00:00:02\.000/);
+assert.match(vtt.text, /00:00:01\.500 --> 00:00:03\.000/);
 assert.match(vtt.text, /Hello/);
-assert.match(vtt.text, /00:00:05\.500 --> 00:00:07\.000/);
-assert.match(vtt.text, /World/);
+assert.match(vtt.text, /00:00:06\.500 --> 00:00:08\.000 align:start/);
+assert.doesNotMatch(vtt.text, /00:00:06\.500 --> 00:00:07\.900/);
+assert.doesNotMatch(vtt.text, /00:00:05\.500 --> 00:00:07\.000/);
 assert.doesNotMatch(vtt.text, /00:00:10\.500 --> 00:00:12\.000/);
+if (extraSegments === 0) {
+  assert.equal((vtt.text.match(/^World$/gm) ?? []).length, 1);
+}
 assert.match(vtt.response.headers.get("cache-control") ?? "", /public/);
 
 const vttAgain = await getText(`/hls/${created.id}/subs.vtt`);
