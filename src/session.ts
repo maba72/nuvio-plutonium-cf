@@ -50,7 +50,7 @@ export async function createHlsSession(
 export async function driveSubtitles(
   env: Env,
   id: string,
-  maxSteps = 60,
+  maxSteps = 200,
 ): Promise<string> {
   const stub = env.SESSIONS.get(env.SESSIONS.idFromName(id));
   let status = "idle";

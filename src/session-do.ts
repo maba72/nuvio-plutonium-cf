@@ -760,11 +760,9 @@ export class SessionDurableObject implements DurableObject {
   }
 
   private async scheduleAlarm(delayMs: number): Promise<void> {
-    const target = Date.now() + Math.max(1, delayMs);
-    const current = await this.state.storage.getAlarm();
-    if (current === null || target < current) {
-      await this.state.storage.setAlarm(target);
-    }
+    // Always overwrite the alarm. getAlarm() can report the currently firing
+    // alarm, which otherwise leaves the subtitle job chain dead after one tick.
+    await this.state.storage.setAlarm(Date.now() + Math.max(1, delayMs));
   }
 
   private async setTtlAlarm(): Promise<void> {
