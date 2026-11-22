@@ -162,6 +162,10 @@ export class SessionDurableObject implements DurableObject {
       if (path === "/master.m3u8" || path === "/master") {
         return this.handleMaster(url);
       }
+      if (path === "/subtitle/step") {
+        await this.runSubtitleJob();
+        return this.handleHealth();
+      }
       if (path === "/subs.m3u8") {
         return await this.handleSubtitlePlaylist();
       }
@@ -365,13 +369,16 @@ export class SessionDurableObject implements DurableObject {
     return status === "done" || status === "none" || status === "error";
   }
 
-  /** Give a background job a bounded chance to finish before serving a track. */
-  private async awaitSubtitleReady(timeoutMs = 120_000): Promise<void> {
+  /**
+   * Make bounded progress before serving a track from an older session whose
+   * background alarm has not finished yet. Each step performs upstream fetches,
+   * which also lets queued alarms interleave. Three steps stay below the free
+   * plan's 50 external subrequests per invocation (3 x 16 chunks).
+   */
+  private async awaitSubtitleReady(): Promise<void> {
     if (this.isSubtitleTerminal()) return;
-    await this.runSubtitleJob();
-    const deadline = Date.now() + timeoutMs;
-    while (!this.isSubtitleTerminal() && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
+    for (let step = 0; step < 3 && !this.isSubtitleTerminal(); step++) {
+      await this.runSubtitleJob();
     }
   }
 
