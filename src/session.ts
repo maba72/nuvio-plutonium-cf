@@ -34,11 +34,10 @@ export async function createHlsSession(
   }
   // Consume the body so the DO request completes cleanly.
   await response.text();
-  // Finish caption generation before returning the session. Each step is a
-  // separate DO invocation that fetches at most SUBREQUEST_BUDGET chunks, so
-  // this stays within the free plan limits while avoiding a player seeing a
-  // subtitle track whose playlist/VTT is still empty.
-  await driveSubtitles(env, id);
+  // Return immediately. The DO schedules its own subtitle alarm, and the
+  // subs.m3u8/subs.vtt handlers make bounded progress on demand. Waiting for a
+  // whole movie's captions here made /stream take up to ~100s on a cold cache,
+  // so Nuvio showed the Pluto provider only after that delay.
   return id;
 }
 

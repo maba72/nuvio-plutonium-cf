@@ -29,6 +29,8 @@ catalogs.
   routes.
 - `src/catalog.ts`, `src/pluto-catalog.ts` — catalog conversion helpers and
   Pluto catalog API access with a shared KV cache.
+- `src/resolve.ts` — maps TMDb/IMDb ids from Nuvio's general search to Pluto
+  media ids using TMDb details, Pluto search, and batched VOD slug lookups.
 - `src/tmdb.ts` — optional cast-photo enrichment, enabled by `TMDB_API_KEY`.
 - `src/session.ts` — shared playback-session creation.
 - `src/session-do.ts` — one SQLite-backed Durable Object per playback session.
@@ -56,6 +58,10 @@ npx wrangler kv namespace create SUBS --preview
 # Optional: force Pluto's geo/country and provide a fixed forwarded IP.
 npx wrangler secret put PLUTO_XFF
 # npx wrangler secret put PLUTO_USER_AGENT
+
+# Required for streams from Nuvio's general search (TMDb/IMDb ids), and used
+# for cast photos when present.
+npx wrangler secret put TMDB_API_KEY
 
 npx wrangler deploy
 ```
@@ -96,7 +102,10 @@ Secrets (set with `npx wrangler secret put <NAME>`):
 
 - `PLUTO_XFF` — fixed IP echoed to Pluto as `X-Forwarded-For`.
 - `PLUTO_USER_AGENT` — override the browser user agent sent upstream.
-- `TMDB_API_KEY` — optional; adds cast profile photos to `/meta` responses.
+- `TMDB_API_KEY` — needed to resolve TMDb/IMDb ids from Nuvio's general search
+  to Pluto titles. Also adds cast profile photos to `/meta` responses. Without
+  it, the addon still serves Pluto catalog ids but returns no general-search
+  streams.
 
 `PLUTO_BOOT_URL`, `PLUTO_CATEGORIES_URL` and `PLUTO_SERIES_URL` can override the
 upstream endpoints for local testing; they are not needed in production.
@@ -133,10 +142,23 @@ https://nuvio-plutonium.marc-ballegeer.workers.dev/manifest.json
 | `GET /meta/<type>/pluto:<kind>:<id>.json` | Metadata, series videos and cast. |
 | `GET /search?q=<text>` | Search over the catalog cache. |
 | `GET /stream/<type>/pluto:<kind>:<id>.json` | Ad-free HLS stream for a movie or episode. |
+| `GET /stream/<type>/tmdb:<id>[:<season>:<episode>].json` | Same, for titles opened from Nuvio's general search. IMDb ids (`tt...`) are accepted too. |
 
 `type` is `movie` or `series` (`tv` is accepted as an alias), and `kind` is
 `movie` or `episode`. All addon endpoints accept optional `?country=` and
 `?xff=<ip>` parameters.
+
+The `stream` resource intentionally has no `idPrefixes`, so Nuvio also queries
+this addon for TMDb/IMDb ids from its general search. Those ids are resolved to
+a Pluto title by looking up the title/year on TMDb, searching Pluto's media
+search service, then fetching the matching VOD slug details in one batch.
+Successful and negative resolutions are cached in Workers KV.
+
+`/stream` returns as soon as the master playlist is resolved and does not wait
+for caption generation. The first request for `subs.m3u8`/`subs.vtt` drives the
+caption job to completion across several Durable Object invocations, so video
+playback starts immediately and subtitles arrive when ready. Subsequent plays
+reuse the KV-cached WebVTT track.
 
 ### Session flow
 

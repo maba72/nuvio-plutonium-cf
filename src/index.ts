@@ -6,7 +6,7 @@ import {
   upstreamConfig,
   fetchText,
 } from "./pluto";
-import { createHlsSession } from "./session";
+import { createHlsSession, driveSubtitles } from "./session";
 import type { Env } from "./types";
 import {
   CORS_HEADERS,
@@ -194,6 +194,17 @@ async function handleSessionPath(request: Request, env: Env, path: string): Prom
     rest === "health" ||
     /^v\/\d+\.m3u8$/.test(rest);
   if (!allowed) return errorResponse(404, "not found");
+
+  // Subtitle requests wait for the caption job, while /stream and video
+  // playlists never do. The Worker drives the job across several DO
+  // invocations so each one stays below Workers Free's subrequest cap.
+  if (request.method === "GET" && (rest === "subs.m3u8" || rest === "subs.vtt")) {
+    try {
+      await driveSubtitles(env, id);
+    } catch (error) {
+      console.warn("subtitle generation failed", error);
+    }
+  }
 
   const stub = env.SESSIONS.get(env.SESSIONS.idFromName(id));
   const doUrl = new URL(`https://session/${rest}`);

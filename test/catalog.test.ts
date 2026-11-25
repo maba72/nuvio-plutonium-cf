@@ -119,5 +119,9 @@ describe("addon manifest", () => {
     expect(manifest.resources).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: "stream" })]),
     );
+    const stream = (manifest.resources as Json[]).find((entry) => entry.name === "stream");
+    // No idPrefixes: Nuvio must also query this addon for general-search
+    // TMDb/IMDb ids.
+    expect(stream?.idPrefixes).toBeUndefined();
   });
 });

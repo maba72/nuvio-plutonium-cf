@@ -38,6 +38,9 @@ export interface BootSession {
   token: string;
   stitcher: string;
   stitcherParams: string;
+  /** Services advertised by Pluto's boot response. */
+  search?: string;
+  vod?: string;
 }
 
 interface BootCacheEntry {
@@ -139,11 +142,23 @@ export function fetchText(
   return fetchTextInternal(rawURL, config, timeoutMs, attempts);
 }
 
+/** Like fetchText, but adds headers such as Pluto's bearer token. */
+export function fetchTextWithHeaders(
+  rawURL: string,
+  config: UpstreamConfig,
+  extraHeaders: Record<string, string>,
+  timeoutMs = 25_000,
+  attempts = 1,
+): Promise<string> {
+  return fetchTextInternal(rawURL, config, timeoutMs, attempts, extraHeaders);
+}
+
 async function fetchTextInternal(
   rawURL: string,
   config: UpstreamConfig,
   timeoutMs: number,
   attempts: number,
+  extraHeaders?: Record<string, string>,
 ): Promise<string> {
   if (
     !isAllowedUpstream(
@@ -160,7 +175,7 @@ async function fetchTextInternal(
   const tries = Math.max(1, attempts);
   for (let attempt = 0; attempt < tries; attempt++) {
     try {
-      return await fetchOnce(rawURL, config, timeoutMs);
+      return await fetchOnce(rawURL, config, timeoutMs, extraHeaders);
     } catch (error) {
       lastError = error;
       const retryable =
@@ -172,7 +187,12 @@ async function fetchTextInternal(
   throw lastError;
 }
 
-async function fetchOnce(rawURL: string, config: UpstreamConfig, timeoutMs: number): Promise<string> {
+async function fetchOnce(
+  rawURL: string,
+  config: UpstreamConfig,
+  timeoutMs: number,
+  extraHeaders?: Record<string, string>,
+): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.max(1, timeoutMs));
   try {
@@ -181,6 +201,9 @@ async function fetchOnce(rawURL: string, config: UpstreamConfig, timeoutMs: numb
       Accept: "*/*",
     });
     if (config.xff) headers.set("X-Forwarded-For", config.xff);
+    for (const [name, value] of Object.entries(extraHeaders ?? {})) {
+      if (value) headers.set(name, value);
+    }
 
     const response = await fetch(rawURL, {
       method: "GET",
@@ -246,8 +269,10 @@ export async function bootSession(
 
   const stitcherParams =
     typeof data.stitcherParams === "string" ? data.stitcherParams.replace(/^[?&]+|[?&]+$/g, "") : "";
+  const search = typeof servers.search === "string" ? servers.search : "";
+  const vod = typeof servers.vod === "string" ? servers.vod : "";
 
-  const boot: BootSession = { token, stitcher, stitcherParams };
+  const boot: BootSession = { token, stitcher, stitcherParams, search, vod };
   bootCache.set(key, { expires: Date.now() + BOOT_TTL_MS, boot });
   return boot;
 }

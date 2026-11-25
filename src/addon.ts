@@ -12,12 +12,13 @@ import {
 } from "./catalog";
 import { fetchCategories, fetchSeriesSeasons } from "./pluto-catalog";
 import { isAllowedUpstream, masterUrlForMedia, upstreamConfig } from "./pluto";
+import { resolvePlutoMediaId } from "./resolve";
 import { createHlsSession } from "./session";
 import { enrichCast } from "./tmdb";
 import type { Env } from "./types";
 import { errorResponse, jsonResponse, publicBase, resolveXff } from "./util";
 
-export const ADDON_VERSION = "0.3.7";
+export const ADDON_VERSION = "0.4.0";
 
 export interface CatalogRow {
   id: string;
@@ -49,7 +50,9 @@ export function addonManifest(version = ADDON_VERSION): Json {
     resources: [
       { name: "catalog", types: ["movie", "series"] },
       { name: "meta", types: ["movie", "series"], idPrefixes: ["pluto:"] },
-      { name: "stream", types: ["movie", "series"], idPrefixes: ["pluto:"] },
+      // No idPrefixes: Nuvio also asks this addon for TMDb/IMDb ids from its
+      // general search. Those are resolved to Pluto media ids in handleStream.
+      { name: "stream", types: ["movie", "series"] },
     ],
     catalogs: CATALOG_ROWS.map((row) => ({ type: row.type, id: row.id, name: row.name })),
   };
@@ -174,10 +177,19 @@ async function handleStream(
   url: URL,
   parts: string[],
 ): Promise<Response> {
-  const mediaId = streamMediaId(decodeId(parts[2]));
+  const type = normalizeType(parts[1]);
+  if (!type) return jsonResponse({ streams: [] });
+
+  const rawId = decodeId(parts[2]);
+  const config = configFor(request, env, url);
+  let mediaId = streamMediaId(rawId);
+  if (!mediaId) {
+    // A Pluto series id without an episode is not playable on its own.
+    if (rawId.toLowerCase().startsWith("pluto:")) return jsonResponse({ streams: [] });
+    mediaId = await resolvePlutoMediaId(env, config, rawId, type);
+  }
   if (!mediaId) return jsonResponse({ streams: [] });
 
-  const config = configFor(request, env, url);
   const masterUrl = await masterUrlForMedia(mediaId, config);
   if (
     !isAllowedUpstream(
